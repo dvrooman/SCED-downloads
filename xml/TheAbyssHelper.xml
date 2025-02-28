@@ -19,7 +19,7 @@
     <Row>
       <Cell>
         <Button fontSize="100"
-          onClick="drawFromAbyss(1)">Draw to my playmat</Button>
+          onClick="onXMLclick(1)">Draw to my playmat</Button>
       </Cell>
       <Cell>
         <Button id="showAbyssSetupButton"

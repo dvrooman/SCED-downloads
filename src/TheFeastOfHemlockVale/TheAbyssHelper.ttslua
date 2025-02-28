@@ -7,15 +7,18 @@ local colliding            = false
 local helpVisibleToPlayers = {}
 local setupVisible         = true
 
+-- forward declaration of variables that are used across functions
+local matColor, handColor, drawDeckPosition, topCardDetected
+
 ---------------------------------------------------------
--- main functionality
+-- MARK: main functionality
 ---------------------------------------------------------
 
 function onLoad()
   self.max_typed_number = 99
 end
 
--- TTS Event to trigger object movement
+-- set up discard area
 function onCollisionEnter(collisionInfo)
   -- flag to catch multiple calls
   if colliding then return end
@@ -49,18 +52,271 @@ function onCollisionEnter(collisionInfo)
   end
 end
 
-function onNumberTyped(playerColor, number)
+-- click button to draw single card
+function onXMLclick(player, number)
+  matColor = playermatApi.getPlayerColor(player)
+  startDraw(number)
+end
+
+-- type number to draw multiple cards
+function onNumberTyped(player, number)
+  matColor = playermatApi.getPlayerColor(player)
   if number > 0 then
-    drawFromAbyss(Player[playerColor], number)
+    startDraw(number)
   end
 end
 
 ---------------------------------------------------------
--- XML click functions
+-- MARK: new "fancy" draw
+---------------------------------------------------------
+
+-- draw cards to dummy hand
+function startDraw(number)
+  if ongoingSearch then return end
+
+  local bag = getAbyssBag
+  if not bag then return end
+
+  local bagCount = #bag.getObjects()
+  if bagCount == 0 then
+    printToColor("The Abyss deck is empty!", matColor, matColor)
+    return
+  end
+
+  -- intentionally global
+  handColor = matColor
+
+  topCardDetected = false
+
+  -- get bounds to know the height of the deck
+  local bounds = bag.getBounds()
+  drawDeckPosition = bounds.center + Vector(0, bounds.size.y / 2 + 0.2, 0)
+
+  local handData = Player[handColor].getHandTransform()
+
+  -- create an additional hand zone
+  local handZone = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
+  local data = handZone.getData()
+  handCount = Player[handColor].getHandCount() + 1
+  handZoneName = "HandZone2"
+  local position = handZone.getPosition() + handData.forward * 7.5
+
+  data.Transform.scaleZ = data.Transform.scaleZ * 0.6
+
+  local newHand = spawnObjectData({ data = data, position = position })
+  guidReferenceApi.editIndex(matColor, handZoneName, newHand.getGUID())
+
+  -- add XML labels
+  newHand.UI.setXmlTable({
+    {
+      tag = "Panel",
+      attributes = {
+        height = 120,
+        width = 1500,
+        scale = ".025 .167 1",
+        position = "0 64 30",
+      },
+      children = {
+        {
+          tag = "TableLayout",
+          attributes = { cellSpacing = "250" },
+          children = {
+            {
+              tag = "Row",
+              children = {
+                {
+                  tag = "Cell",
+                  children = {
+                    {
+                      tag = "Panel",
+                      attributes = { color = "#b6e2f099" },
+                      children = {
+                        {
+                          tag = "Text",
+                          attributes = { font = "font_teutonic-arkham", fontSize = "100" },
+                          value = "draw more"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  tag = "Cell",
+                  children = {
+                    {
+                      tag = "Panel",
+                      attributes = { color = "#b6e2f099" },
+                      children = {
+                        {
+                          tag = "Text",
+                          attributes = { font = "font_teutonic-arkham", fontSize = "100" },
+                          value = "placeholder"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      tag = "Panel",
+      attributes = {
+        height = 170,
+        width = 1500,
+        scale = ".025 .167 1",
+        position = "0 -67 30",
+      },
+      children = {
+        {
+          tag = "TableLayout",
+          attributes = { cellSpacing = "250", cellBackgroundColor = "#b6e2f0" },
+          children = {
+            {
+              tag = "Row",
+              children = {
+                {
+                  tag = "Cell",
+                  children = {
+                    {
+                      tag = "Panel",
+                      attributes = { color = "#b6e2f0D9" },
+                      children = {
+                        {
+                          tag = "Button",
+                          attributes = {
+                            color = "#ffffff00",
+                            fontSize = "150",
+                            onClick = self.getGUID() .. "/endSearch(false)",
+                            tooltip = "Return cards and shuffle",
+                            font = "font_teutonic-arkham",
+                            textColors = "#000000|#009acb|#005a77"
+                          },
+                          value = "Return"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  tag = "Cell",
+                  children = {
+                    {
+                      tag = "Panel",
+                      attributes = { color = "#b6e2f0D9" },
+                      children = {
+                        {
+                          tag = "Button",
+                          attributes = {
+                            color = "#ffffff00",
+                            fontSize = "150",
+                            onClick = self.getGUID() .. "/endSearch(true)",
+                            tooltip = "Return cards without shuffling",
+                            font = "font_teutonic-arkham",
+                            textColors = "#000000|#009acb|#005a77"
+                          },
+                          value = "Remove"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+
+  searchView()
+
+  -- location for temporary cards
+  local bounds = bag.getBoundsNormalized()
+  local pos = bounds.center
+  pos.y = pos.y + bounds.size.y + 1
+
+  local drawnCards = {} -- keeping track of drawn cards
+  for i = 1, math.min(number, bagCount) do
+    local takenObject = bag.takeObject({
+      -- top = false, --only works on decks, not bags
+      smooth = false,
+      position = pos,
+      index = 0, --last card in bag
+    })
+    table.insert(drawnCards, figureSortOrder(takenObject))
+  end
+
+  -- sort the drawn cards
+  table.sort(
+    drawnCards, function(a,b)
+      return a.order < b.order
+    end
+  )
+  
+  -- deal to temporary hand
+  Wait.frames(function() 
+    for _, obj in ipairs(drawnCards) do
+        obj.card.deal(1, handColor, handCount)
+    end
+  end, 3 + (topCardDetected and 30 or 0))
+  
+  -- make sure mythos/location cards aren't revealed
+  Wait.frames(function() faceDownHand() end, 30)
+end
+
+-- put drawn cards back in abyss/remove from game
+-- #TODO: changing shuffle to remove
+function endSearch(_, shuffle) 
+  local handToCheck = math.min(Player[handColor].getHandCount(), handCount)
+  local handCards = Player[handColor].getHandObjects(handToCheck)
+
+  -- place cards on deck
+  deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, self.getRotation():setAt("z", 180))
+
+  local additionalHand = guidReferenceApi.getObjectByOwnerAndType(matColor, handZoneName)
+  if additionalHand then
+    Wait.time(function() additionalHand.destruct() end, 0.5 + #handCards * 0.1)
+    guidReferenceApi.editIndex(matColor, handZoneName, nil)
+  end
+
+  normalView()
+
+  Wait.time(function()
+    -- maybe shuffle deck
+    if shuffle == "true" then
+      local deckAreaObjects
+      if owner == "Mythos" then
+        deckAreaObjects = mythosAreaApi.getEncounterDeckObjects()
+      else
+        deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+      end
+
+      if deckAreaObjects.draw then
+        deckAreaObjects.draw.shuffle()
+      end
+    end
+
+    -- Norman Withers / Eye of Ghatanothoa handling
+    if topCardDetected then
+      if owner == "Mythos" then
+        mythosAreaApi.flipTopCardFromDeck()
+      else
+        playermatApi.flipTopCardFromDeck(matColor)
+      end
+    end
+  end, 1 + #handCards * 0.1)
+end
+
+---------------------------------------------------------
+-- MARK: XML click functions
 ---------------------------------------------------------
 
 -- draws a card to the playmat of the requesting player
-function drawFromAbyss(player, number)
+function drawFromAbyssORIG(player, number)
   local bag = getAbyssBag()
   if not bag then return end
 
@@ -78,6 +334,55 @@ function drawFromAbyss(player, number)
     deckLib.placeOrMergeIntoDeck(bag.takeObject({ index = 0 }), Vector(pos), rot)
   end
 end
+
+---------------------------------------------------------
+-- MARK: helper functions
+---------------------------------------------------------
+
+-- called from the onNumberTyped of the Abyss Bag
+function drawFromAbyssWrapper(params)
+  -- drawFromAbyss(Player[params.playerColor], params.number)
+  matColor = playermatApi.getPlayerColor(params.playerColor)
+  startDraw(params.number)
+end
+
+-- returns a reference to the abyss deck
+function getAbyssBag()
+  for _, obj in ipairs(searchLib.atPosition(self.positionToWorld({ x = 1.05, y = 0.05, z = 0.16 }))) do
+    if obj.type == "Bag" then
+      return obj
+    end
+  end
+
+  printToAll("Couldn't find Abyss deck!", "Orange")
+  return nil
+end
+
+-- returns a reference to one of the abyss setup decks
+---@param topOrBottom string return top|bottom bag
+function getSetupBag(topOrBottom)
+  local offset = { x = -1, y = 0, z = 3 } --top
+  if topOrBottom == "bottom" then offset.z = 4.12 end
+
+  local bag
+  for _, obj in ipairs(searchLib.atPosition(self.positionToWorld(offset))) do
+    if obj.type == "Bag" then
+      bag = obj
+      break
+    end
+  end
+
+  if not bag then
+    printToAll("Couldn't find " .. topOrBottom .. " setup deck!", "Orange")
+    return
+  end
+
+  return bag
+end
+
+---------------------------------------------------------
+-- MARK: setup functions
+---------------------------------------------------------
 
 -- adds a tag to all cards of each player
 function tagPlayerCards()
@@ -111,16 +416,6 @@ function tagPlayerCards()
   self.UI.setAttribute("tagRow", "active", false)
   self.UI.setAttribute("splitRow", "active", true)
   enableNavigation()
-end
-
--- toggles the help text for the player that clicks it
-function toggleHelp(player)
-  if helpVisibleToPlayers[player.color] then
-    helpVisibleToPlayers[player.color] = nil
-  else
-    helpVisibleToPlayers[player.color] = true
-  end
-  updateHelpVisibility()
 end
 
 function splitAbyss()
@@ -168,66 +463,18 @@ function finalizeAbyss()
 end
 
 ---------------------------------------------------------
--- helper functions
+-- MARK: setup UI functions
 ---------------------------------------------------------
 
--- returns a reference to the abyss deck
-function getAbyssBag()
-  for _, obj in ipairs(searchLib.atPosition(self.positionToWorld({ x = 1.05, y = 0.05, z = 0.16 }))) do
-    if obj.type == "Bag" then
-      return obj
-    end
+-- toggles the help text for the player that clicks it
+function toggleHelp(player)
+  if helpVisibleToPlayers[player.color] then
+    helpVisibleToPlayers[player.color] = nil
+  else
+    helpVisibleToPlayers[player.color] = true
   end
-
-  printToAll("Couldn't find Abyss deck!", "Orange")
-  return nil
+  updateHelpVisibility()
 end
-
--- updates the visibility of the help text
-function updateHelpVisibility()
-  local visibility = ""
-  for playerColor, _ in pairs(helpVisibleToPlayers) do
-    if string.len(visibility) > 0 then
-      visibility = visibility .. "|" .. playerColor
-    else
-      visibility = playerColor
-    end
-  end
-  self.UI.setAttribute("helpText", "visibility", visibility)
-  self.UI.setAttribute("helpPanel", "visibility", visibility)
-  self.UI.setAttribute("helpPanel", "active", string.len(visibility) > 0)
-end
-
--- called from the onNumberTyped of the Abyss Bag
-function drawFromAbyssWrapper(params)
-  drawFromAbyss(Player[params.playerColor], params.number)
-end
-
--- returns a reference to the abyss deck
----@param topOrBottom string return top|bottom bag
-function getSetupBag(topOrBottom)
-  local offset = { x = -1, y = 0, z = 3 } --top
-  if topOrBottom == "bottom" then offset.z = 4.12 end
-
-  local bag
-  for _, obj in ipairs(searchLib.atPosition(self.positionToWorld(offset))) do
-    if obj.type == "Bag" then
-      bag = obj
-      break
-    end
-  end
-
-  if not bag then
-    printToAll("Couldn't find " .. topOrBottom .. " setup deck!", "Orange")
-    return
-  end
-
-  return bag
-end
-
----------------------------------------------------------
--- setup ui functions
----------------------------------------------------------
 
 -- toggles the setup section
 function toggleSetup()
@@ -298,4 +545,80 @@ function updateExplanation()
   end
 
   self.UI.setValue("explanation", explanationText)
+end
+
+-- updates the visibility of the help text
+function updateHelpVisibility()
+  local visibility = ""
+  for playerColor, _ in pairs(helpVisibleToPlayers) do
+    if string.len(visibility) > 0 then
+      visibility = visibility .. "|" .. playerColor
+    else
+      visibility = playerColor
+    end
+  end
+  self.UI.setAttribute("helpText", "visibility", visibility)
+  self.UI.setAttribute("helpPanel", "visibility", visibility)
+  self.UI.setAttribute("helpPanel", "active", string.len(visibility) > 0)
+end
+
+---------------------------------------------------------
+-- MARK: draw helper functions
+---------------------------------------------------------
+
+-- regular view with search box
+function normalView()
+  ongoingSearch = false
+  -- self.clearButtons()
+
+  -- -- create buttons to search 3, 6 or 9 cards
+  -- for _, data in ipairs(buttonLabels) do
+  --   quickParameters.click_function = "search" .. data.label
+  --   quickParameters.label          = data.label
+  --   quickParameters.position       = data.position
+  --   self.createButton(quickParameters)
+  -- end
+end
+
+-- view during a search with "done" buttons
+function searchView()
+  ongoingSearch = true
+  -- self.clearButtons()
+end
+
+-- make sure mythos cards aren't revealed
+-- locations should be unrevealed by defalt when dealt to a hand
+function faceDownHand()
+  for _, obj in ipairs(Player[matColor].getHandObjects(handCount)) do
+    if not obj.hasTag("PlayerCard") and not obj.hasTag("Location") then
+        local rot = obj.getRotation():setAt("z", 180)
+        obj.setRotation(rot)
+    end
+  end
+end
+
+-- input card object: return table with card & sort order info
+function figureSortOrder(obj)
+  local groupOrder
+  if obj.hasTag("Investigator") then
+    groupOrder = 5
+  elseif obj.hasTag("PlayerCard") then
+    -- subsorting for player cards by player mat color
+    if obj.hasTag("_Green") then
+      groupOrder = 10
+    elseif obj.hasTag("_White") then
+      groupOrder = 11
+    elseif obj.hasTag("_Orange") then
+      groupOrder = 12
+    elseif obj.hasTag("_Red") then
+      groupOrder = 13
+    else
+      groupOrder = 14
+    end
+  elseif obj.hasTag("Location") then
+    groupOrder = 20
+  else
+    groupOrder = 30
+  end
+  return {card=obj, order=groupOrder}
 end
