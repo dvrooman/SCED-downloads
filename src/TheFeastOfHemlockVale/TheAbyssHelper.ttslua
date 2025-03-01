@@ -194,7 +194,7 @@ function startDraw(number)
                             color = "#ffffff00",
                             fontSize = "150",
                             onClick = self.getGUID() .. "/endSearch(false)",
-                            tooltip = "Return cards and shuffle",
+                            tooltip = "Shuffle cards and Return to Abyss",
                             font = "font_teutonic-arkham",
                             textColors = "#000000|#009acb|#005a77"
                           },
@@ -209,17 +209,18 @@ function startDraw(number)
                   children = {
                     {
                       tag = "Panel",
-                      attributes = { color = "#b6e2f0D9" },
+                      -- attributes = { color = "#b6e2f0D9" },
+                      attributes = { color = "#700000D9" },
                       children = {
                         {
                           tag = "Button",
                           attributes = {
-                            color = "#ffffff00",
+                            color = "#00000000",
                             fontSize = "150",
                             onClick = self.getGUID() .. "/endSearch(true)",
-                            tooltip = "Return cards without shuffling",
+                            tooltip = "Remove cards from game",
                             font = "font_teutonic-arkham",
-                            textColors = "#000000|#009acb|#005a77"
+                            textColors = "#ffffff|#FFB0B0|#F24545"
                           },
                           value = "Remove"
                         }
