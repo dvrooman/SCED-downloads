@@ -193,7 +193,7 @@ function startDraw(number)
                           attributes = {
                             color = "#ffffff00",
                             fontSize = "150",
-                            onClick = self.getGUID() .. "/endSearch(false)",
+                            onClick = self.getGUID() .. "/endDraw(false)",
                             tooltip = "Shuffle cards and Return to Abyss",
                             font = "font_teutonic-arkham",
                             textColors = "#000000|#009acb|#005a77"
@@ -217,7 +217,7 @@ function startDraw(number)
                           attributes = {
                             color = "#00000000",
                             fontSize = "150",
-                            onClick = self.getGUID() .. "/endSearch(true)",
+                            onClick = self.getGUID() .. "/endDraw(true)",
                             tooltip = "Remove cards from game",
                             font = "font_teutonic-arkham",
                             textColors = "#ffffff|#FFB0B0|#F24545"
@@ -274,8 +274,39 @@ end
 
 -- put drawn cards back in abyss/remove from game
 -- #TODO: changing shuffle to remove
-function endSearch(_, shuffle) 
+function endDraw(_, shuffle) 
   local handToCheck = math.min(Player[handColor].getHandCount(), handCount)
+
+  -- shuffle hand first
+  --store hand
+  local storedHand = {}
+  local storedPositions = {}
+  for _, obj in ipairs(Player[handColor].getHandObjects(handToCheck)) do
+    table.insert(storedHand, obj.getData())
+    table.insert(storedPositions, obj.getPosition())
+    obj.destruct()
+  end
+
+  -- sort stored positions
+  table.sort(
+    storedPositions, function(a,b)
+      return a.x < b.x
+    end
+  )
+
+  -- shuffle stored hand
+  shuffleInPlace(storedHand)
+
+  --rebuild hand
+  local i = 1
+  for _, data in pairs(storedHand) do
+    spawnObjectData({
+      data = data,
+      position = storedPositions[i]
+    })
+    i = i + 1
+  end
+  
   local handCards = Player[handColor].getHandObjects(handToCheck)
 
   -- place cards on deck
@@ -360,6 +391,14 @@ function getAbyssBag()
 
   printToAll("Couldn't find Abyss deck!", "Orange")
   return nil
+end
+
+-- shuffles order of a table
+function shuffleInPlace(t)
+  for i = #t, 2, -1 do
+      local j = math.random(i)
+      t[i], t[j] = t[j], t[i]
+  end
 end
 
 -- returns a reference to one of the abyss setup decks
