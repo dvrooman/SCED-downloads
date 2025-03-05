@@ -1,5 +1,12 @@
--- TODO: - [ ] button to bring out "regular" abyss
---       - [ ] this would be a lot easier for the players to use with draw thingies next to each playermat. 
+-- ### TODO:
+--  - [ ] check Chr1z's note about needing to put the setup bags somewhere instead of just hiding them
+--  - [ ] button to bring out abyss helpers for each player @ their playmat
+--        currently kind of hard to hit draw button from White/Orange mats without zooming
+--        could also have a remaining card count
+--  - [ ] remove from play bag
+--  - [ ] Draw from Abyss button:
+--        version that draws multiple cards until a Mythos card is drawn.
+--        first Mythos face up, all others face down 
 
 local deckLib              = require("util/DeckLib")
 local guidReferenceApi     = require("core/GUIDReferenceApi")
